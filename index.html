@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>6-trial delay discounting task</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F8F9FA;
+    --card: #FFFFFF;
+    --border: #DADCE0;
+    --text: #202124;
+    --text-muted: #5F6368;
+    --accent: #673AB7;
+    --accent-soft: #EDE7F6;
+    --danger: #C5221F;
+    --danger-soft: #FCE8E6;
+    --radius: 8px;
+    --font: 'Roboto', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; font-family: var(--font); background: var(--bg); color: var(--text);
+    min-height: 100vh; display: flex; flex-direction: column;
+    padding: 24px; -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    width: 100%; max-width: 600px; margin: auto; background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 44px 38px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  @media (max-width: 480px) { body { padding: 16px; } .card { padding: 28px 20px; } }
+  .progress-label { font-size: 12px; color: var(--text-muted); letter-spacing: 0.03em; margin-bottom: 8px; text-transform: uppercase; }
+  .progress-bar { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; margin-bottom: 30px; }
+  .progress-bar-fill { height: 100%; background: var(--accent); width: 0%; }
+  @media (prefers-reduced-motion: no-preference) { .progress-bar-fill { transition: width .25s ease; } }
+  h1 { font-size: 21px; margin: 0 0 16px; font-weight: 650; line-height: 1.3; }
+  p { line-height: 1.6; font-size: 15px; margin: 0 0 14px; }
+  .choices { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+  .choice-btn {
+    border: 1.5px solid var(--border); background: #fff; border-radius: var(--radius);
+    padding: 18px 18px; font-size: 16px; font-weight: 600; cursor: pointer; text-align: left;
+    color: var(--text); font-family: var(--font); width: 100%;
+  }
+  .choice-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .choice-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn-primary {
+    background: var(--accent); color: #fff; border: none; padding: 14px 22px; border-radius: var(--radius);
+    font-size: 15px; font-weight: 650; cursor: pointer; width: 100%; font-family: var(--font); margin-top: 20px;
+  }
+  .btn-primary:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  .btn-secondary {
+    background: none; border: 1.5px solid var(--border); color: var(--text); padding: 8px 14px;
+    border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer;
+    font-family: var(--font); margin-top: 10px;
+  }
+  .currency-picker {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+    padding: 10px 14px; background: var(--accent-soft); border-radius: var(--radius);
+    border: 1.5px solid var(--accent);
+  }
+  .currency-picker-label { font-size: 13px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+  .currency-picker-btns { display: flex; gap: 6px; }
+  .currency-picker-btn {
+    border: 1.5px solid var(--accent); background: #fff; color: var(--accent);
+    padding: 6px 14px; border-radius: 7px; font-size: 13px; font-weight: 700; cursor: pointer;
+    font-family: var(--font);
+  }
+  .currency-picker-btn.active { background: var(--accent); color: #fff; }
+  .status-note { border-radius: var(--radius); padding: 14px 16px; font-size: 13px; margin: 16px 0; line-height: 1.5; }
+  .status-note.ok { background: var(--accent-soft); color: var(--accent); }
+  .status-note.warn { background: var(--danger-soft); color: var(--danger); }
+</style>
+</head>
+<body>
+  <div class="card" id="app"></div>
+
+<script>
+// Study settings. AMOUNT_EUR is the larger, later reward; the sooner reward is always half of it.
+// EUR_TO_CZK is only used to display amounts in CZK when that currency is selected.
+const CONFIG = {
+  AMOUNT_EUR: 1000,
+  EUR_TO_CZK: 24.2,
+  DEFAULT_CURRENCY: 'czk',
+  MIN_PLAUSIBLE_RT_MS: 300,
+  STUDY_ID: 'ddt_6trial',
+  SUBMIT_URL: '/api/submit',
+};
+
+// All participant-facing text. Translate here (together with LABELS below) to change the language.
+const T = {
+  instructionsTitle: 'Jak funguje následující část',
+  instructionsBody:
+    'Na následujících obrazovkách si vždy vyberete mezi dvěma částkami peněz — jednou, kterou byste ' +
+    'dostali hned, a druhou, větší, kterou byste dostali až po určité době. Představte si, že jde ' +
+    'o skutečnou volbu, a vyberte možnost, kterou byste v takové situaci opravdu preferovali. ' +
+    'Neexistuje správná ani nesprávná odpověď.',
+  startBtn: 'Začít',
+  questionLabel: n => 'Otázka ' + n + ' z 6',
+  soonerSuffix: 'hned',
+  laterPrefix: 'za',
+  currencyLabel: 'Měna:',
+
+  thanksTitle: 'Děkujeme',
+  thanksBody: 'Vaše odpovědi byly zaznamenány.',
+  sending: 'Odesílání…',
+  sentOk: 'Data byla odeslána.',
+  sentError: 'Data se nepodařilo automaticky odeslat. Stáhněte si prosím zálohu níže a uschovejte ji.',
+  notConfigured: 'Ukládání dat není nastaveno. Stáhněte si prosím záznam odpovědí níže.',
+  backupBtn: 'Stáhnout záznam odpovědí (JSON)',
+};
+
+// Delay to the larger reward at each of the 63 nodes (Koffarnus, Rzeszutek & Kaplan, 2021, Table 3).
+// The duplicates (1/2, 48/49, 62/63) are taken over from the original table.
+const LABELS = {1:'5 sekund',2:'5 sekund',3:'7 sekund',4:'10 sekund',5:'15 sekund',6:'20 sekund',7:'25 sekund',
+  8:'30 sekund',9:'45 sekund',10:'1 minutu',11:'1,5 minuty',12:'2 minuty',13:'3 minuty',14:'4 minuty',
+  15:'6 minut',16:'9 minut',17:'12 minut',18:'17 minut',19:'23 minut',20:'30 minut',21:'45 minut',
+  22:'1 hodinu',23:'1,5 hodiny',24:'2 hodiny',25:'3 hodiny',26:'4 hodiny',27:'5 hodin',28:'7 hodin',
+  29:'10 hodin',30:'15 hodin',31:'20 hodin',32:'1 den',33:'1,5 dne',34:'2 dny',35:'3 dny',36:'4 dny',
+  37:'6 dní',38:'1 týden',39:'1,5 týdne',40:'2 týdny',41:'3 týdny',42:'1 měsíc',43:'1,5 měsíce',
+  44:'2 měsíce',45:'3 měsíce',46:'4 měsíce',47:'6 měsíců',48:'8 měsíců',49:'8 měsíců',
+  50:'10 měsíců',51:'1,5 roku',52:'2 roky',53:'3 roky',54:'5 let',55:'6 let',56:'9 let',
+  57:'12 let',58:'17 let',59:'25 let',60:'33 let',61:'46 let',62:'65 let',63:'65 let'};
+
+// Discount rate k (per day) assigned after the sixth choice, depending on the final node and
+// whether the last choice was immediate or delayed. null means the attention check was failed.
+const ODD_K = {
+  1:{imm:null,del:17280}, 3:{imm:14604.2655217088,del:10326.7751846492},
+  5:{imm:7054.5304592156,del:4988.3063257984}, 7:{imm:3863.9254651196,del:3154.8819312298},
+  9:{imm:2351.5101530719,del:1662.7687752661}, 11:{imm:1175.7550765359,del:831.3843876331},
+  13:{imm:587.8775382680,del:415.6921938165}, 15:{imm:293.9387691340,del:195.9591794227},
+  17:{imm:138.5640646055,del:100.8201660500}, 19:{imm:72.8239301891,del:54.8198631091},
+  21:{imm:39.1918358845,del:27.7128129211}, 23:{imm:19.5959179423,del:13.8564064606},
+  25:{imm:9.7979589711,del:6.9282032303}, 27:{imm:5.3665631460,del:4.0567404227},
+  29:{imm:2.8685486624,del:1.9595917942}, 31:{imm:1.3856406461,del:1.0954451150},
+  33:{imm:0.8164965809,del:0.5773502692}, 35:{imm:0.4082482905,del:0.2886751346},
+  37:{imm:0.2041241452,del:0.1543033500}, 39:{imm:0.1166423687,del:0.0824786099},
+  41:{imm:0.0583211844,del:0.0395519617}, 43:{imm:0.0268231465,del:0.0189668288},
+  45:{imm:0.0134115733,del:0.0094834144}, 47:{imm:0.0067057866,del:0.0047417072},
+  49:{imm:0.0036729106,del:0.0029990421}, 51:{imm:0.0022354458,del:0.0015806989},
+  53:{imm:0.0011177229,del:0.0007069100}, 55:{imm:0.0004998609,del:0.0003725743},
+  57:{imm:0.0002634498,del:0.0001916879}, 59:{imm:0.0001328053,del:0.0000953197},
+  61:{imm:0.0000702706,del:0.0000500696}, 63:{imm:0.0000421208,del:null},
+};
+
+function getParticipantId() {
+  try {
+    const pid = new URLSearchParams(window.location.search).get('pid');
+    if (pid) return pid.trim().slice(0, 64);
+  } catch (e) {}
+  return 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+const state = {
+  currency: CONFIG.DEFAULT_CURRENCY,
+  screen: 'instructions',
+  trial: 0, index: 32, step: 16, choices: [], trialLog: [],
+  trialStartTs: null, trialOrder: null,
+  attentionType: null,
+  answers: {},
+  participantId: getParticipantId(),
+  startedAt: new Date().toISOString(),
+  sendStatus: null,
+  lastPayload: null,
+};
+
+function formatAmount(eur) {
+  if (state.currency === 'czk') {
+    const czk = Math.round(eur * CONFIG.EUR_TO_CZK / 10) * 10;
+    return czk.toLocaleString('cs-CZ') + ' Kč';
+  }
+  return eur.toLocaleString('cs-CZ') + ' €';
+}
+
+function renderCurrencyPicker() {
+  return '<div class="currency-picker">' +
+    '<span class="currency-picker-label">' + T.currencyLabel + '</span>' +
+    '<div class="currency-picker-btns">' +
+      ['czk', 'eur'].map(c =>
+        '<button type="button" class="currency-picker-btn' + (state.currency === c ? ' active' : '') + '" data-cur="' + c + '">' +
+          c.toUpperCase() + '</button>'
+      ).join('') +
+    '</div>' +
+  '</div>';
+}
+function wireCurrencyPicker() {
+  document.querySelectorAll('.currency-picker-btn').forEach(b => {
+    b.addEventListener('click', () => { state.currency = b.dataset.cur; render(); });
+  });
+}
+
+function render() {
+  const app = document.getElementById('app');
+  const map = {
+    instructions: renderInstructions,
+    trial: renderTrial,
+    thanks: renderThanks,
+  };
+  map[state.screen](app);
+  window.scrollTo(0, 0);
+}
+
+function renderInstructions(app) {
+  app.innerHTML =
+    '<h1>' + T.instructionsTitle + '</h1>' +
+    '<p>' + T.instructionsBody + '</p>' +
+    '<button class="btn-primary" id="startTask">' + T.startBtn + '</button>';
+  document.getElementById('startTask').addEventListener('click', () => {
+    state.screen = 'trial';
+    state.trial = 1;
+    render();
+  });
+}
+
+// Trials 1-5 adjust the delay up or down the 63-node ladder (start at node 32 = 1 day, step 16, halved
+// after every choice). If all five choices were the same, trial 6 is an attention check instead.
+function currentTrialContent() {
+  if (state.trial === 6 && state.attentionType === 'A') {
+    return { kind:'attentionA', node:1,
+      sooner:{amountEur:0,label:T.soonerSuffix,correct:false},
+      later:{amountEur:CONFIG.AMOUNT_EUR,delayLabel:LABELS[1],correct:true} };
+  }
+  if (state.trial === 6 && state.attentionType === 'B') {
+    return { kind:'attentionB', node:63,
+      sooner:{amountEur:CONFIG.AMOUNT_EUR,label:T.soonerSuffix,correct:true},
+      later:{amountEur:CONFIG.AMOUNT_EUR,delayLabel:LABELS[63],correct:false} };
+  }
+  return { kind:'normal', node: state.index,
+    sooner:{amountEur:CONFIG.AMOUNT_EUR/2,label:T.soonerSuffix},
+    later:{amountEur:CONFIG.AMOUNT_EUR,delayLabel:LABELS[state.index]} };
+}
+
+function renderTrial(app) {
+  const content = currentTrialContent();
+  const soonerText = formatAmount(content.sooner.amountEur) + ' ' + content.sooner.label;
+  const laterText = formatAmount(content.later.amountEur) + ' ' + T.laterPrefix + ' ' + content.later.delayLabel;
+
+  // Button order is randomized once per trial and kept if the screen is redrawn (e.g. currency switch).
+  if (!state.trialOrder || state.trialOrder.trial !== state.trial) {
+    state.trialOrder = { trial: state.trial,
+      order: Math.random() < 0.5 ? ['sooner', 'later'] : ['later', 'sooner'] };
+    state.trialStartTs = performance.now();
+  }
+  const buttonHtml = state.trialOrder.order.map(kind => {
+    const label = kind === 'sooner' ? soonerText : laterText;
+    return '<button class="choice-btn" data-choice="' + kind + '">' + label + '</button>';
+  }).join('');
+
+  app.innerHTML =
+    '<div class="progress-label">' + T.questionLabel(state.trial) + '</div>' +
+    '<div class="progress-bar"><div class="progress-bar-fill" style="width:' + (state.trial / 6 * 100) + '%"></div></div>' +
+    renderCurrencyPicker() +
+    '<div class="choices">' + buttonHtml + '</div>';
+
+  wireCurrencyPicker();
+  document.querySelectorAll('.choice-btn').forEach(b => {
+    b.addEventListener('click', () => handleChoice(b.dataset.choice, content));
+  });
+}
+
+function handleChoice(pickedKind, content) {
+  const rtMs = Math.round(performance.now() - state.trialStartTs);
+  const flagTooFast = rtMs < CONFIG.MIN_PLAUSIBLE_RT_MS;
+
+  if (content.kind === 'normal') {
+    const choice = pickedKind === 'sooner' ? 'imm' : 'del';
+    state.trialLog.push({ trial: state.trial, kind:'normal', node: content.node,
+      delay_label: LABELS[content.node], choice, rt_ms: rtMs, flag_too_fast: flagTooFast });
+
+    if (state.trial < 6) {
+      state.choices.push(choice);
+      state.index = choice === 'imm' ? state.index - state.step : state.index + state.step;
+      state.step = state.step / 2;
+      state.trial += 1;
+      if (state.trial === 6) {
+        const allImm = state.choices.every(c => c === 'imm');
+        const allDel = state.choices.every(c => c === 'del');
+        state.attentionType = allImm ? 'A' : (allDel ? 'B' : null);
+      }
+      render();
+    } else {
+      const k = choice === 'imm' ? ODD_K[content.node].imm : ODD_K[content.node].del;
+      finishTask({ attentionTriggered:false, attentionPassed:null, k });
+    }
+    return;
+  }
+
+  const chosenSide = pickedKind === 'sooner' ? content.sooner : content.later;
+  const passed = !!chosenSide.correct;
+  state.trialLog.push({ trial:6, kind:'attention_' + state.attentionType, node: content.node,
+    delay_label: LABELS[content.node], choice: pickedKind === 'sooner' ? 'imm' : 'del',
+    rt_ms: rtMs, flag_too_fast: flagTooFast, passed });
+
+  let k = null;
+  if (passed) k = state.attentionType === 'A' ? ODD_K[1].del : ODD_K[63].imm;
+  finishTask({ attentionTriggered:true, attentionPassed:passed, k });
+}
+
+function finishTask({ attentionTriggered, attentionPassed, k }) {
+  const rts = state.trialLog.map(x => x.rt_ms);
+  const a = state.answers;
+  a.dd_k = k;
+  a.dd_ed50_days = k ? 1 / k : null;
+  a.dd_log10_k = k ? Math.log10(k) : null;
+  a.dd_attention_triggered = attentionTriggered;
+  a.dd_attention_type = state.attentionType || '';
+  a.dd_attention_passed = attentionPassed;
+  a.dd_min_rt_ms = Math.min.apply(null, rts);
+  a.dd_flag_too_fast = state.trialLog.some(x => x.flag_too_fast);
+  state.trialLog.forEach((entry, i) => {
+    const p = 'dd_t' + (i + 1) + '_';
+    a[p + 'kind'] = entry.kind;
+    a[p + 'node'] = entry.node;
+    a[p + 'delay_label'] = entry.delay_label;
+    a[p + 'choice'] = entry.choice;
+    a[p + 'rt_ms'] = entry.rt_ms;
+  });
+
+  const payload = Object.assign(
+    { participant_id: state.participantId, study_id: CONFIG.STUDY_ID,
+      currency: state.currency, amount_eur: CONFIG.AMOUNT_EUR,
+      started_at: state.startedAt, finished_at: new Date().toISOString() },
+    a
+  );
+  state.lastPayload = payload;
+  state.screen = 'thanks';
+  render();
+  submitData(payload);
+}
+
+async function submitData(payload) {
+  if (!CONFIG.SUBMIT_URL) {
+    state.sendStatus = 'not_configured';
+  } else {
+    try {
+      const response = await fetch(CONFIG.SUBMIT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      state.sendStatus = response.ok ? 'sent' : 'error';
+    } catch (err) {
+      state.sendStatus = 'error';
+    }
+  }
+  renderThanksStatus();
+}
+
+function renderThanksStatus() {
+  const el = document.getElementById('statusNote');
+  if (!el) return;
+  if (state.sendStatus === 'sent') {
+    el.className = 'status-note ok'; el.textContent = T.sentOk;
+  } else if (state.sendStatus === 'error' || state.sendStatus === 'not_configured') {
+    el.className = 'status-note warn';
+    el.textContent = state.sendStatus === 'error' ? T.sentError : T.notConfigured;
+    document.getElementById('backupBtn').style.display = 'block';
+  }
+}
+
+function renderThanks(app) {
+  app.innerHTML =
+    '<h1>' + T.thanksTitle + '</h1>' +
+    '<p>' + T.thanksBody + '</p>' +
+    '<div id="statusNote" class="status-note ok">' + T.sending + '</div>' +
+    '<button class="btn-secondary" id="backupBtn" style="display:none">' + T.backupBtn + '</button>';
+
+  document.getElementById('backupBtn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(state.lastPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = state.participantId + '.json';
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  });
+  renderThanksStatus();
+}
+
+render();
+</script>
+</body>
+</html>
